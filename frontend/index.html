@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<title>News Intelligence Dashboard</title>
+	<meta name="description" content="Daily AI-curated news on AI swarms, scaling laws, and data centers." />
+	<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📰</text></svg>" />
+	<style>
+		:root {
+			--bg: #f6f7f9;
+			--surface: #ffffff;
+			--border: #e3e6eb;
+			--text: #1b1f24;
+			--muted: #5f6b7a;
+			--accent: #2f5bea;
+			--accent-hover: #2249c7;
+			--high-bg: #e3f5ea; --high-fg: #146c3a;
+			--mid-bg: #fdf3d8;  --mid-fg: #8a5a00;
+			--low-bg: #eef0f3;  --low-fg: #4a5563;
+			--error-bg: #fdecec; --error-fg: #a32020;
+			--radius: 10px;
+			--shadow: 0 1px 2px rgba(16, 24, 40, 0.05);
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #0f1216;
+				--surface: #171b21;
+				--border: #2a3039;
+				--text: #e6e9ee;
+				--muted: #9aa5b4;
+				--accent: #6d8dff;
+				--accent-hover: #8aa3ff;
+				--high-bg: #123222; --high-fg: #7fdca6;
+				--mid-bg: #352a10;  --mid-fg: #f2c66b;
+				--low-bg: #252b34;  --low-fg: #b4bdc9;
+				--error-bg: #3a1717; --error-fg: #ff9c9c;
+				--shadow: none;
+			}
+		}
+		* { box-sizing: border-box; }
+		body {
+			margin: 0;
+			background: var(--bg);
+			color: var(--text);
+			font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+		}
+		.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+		header { background: var(--surface); border-bottom: 1px solid var(--border); }
+		.header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; flex-wrap: wrap; }
+		h1 { margin: 0; font-size: 1.35rem; letter-spacing: -0.01em; }
+		.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 0.9rem; }
+		.refresh-area { display: flex; align-items: center; gap: 12px; }
+		.last-refreshed { color: var(--muted); font-size: 0.85rem; text-align: right; }
+
+		button {
+			font: inherit; font-weight: 600; cursor: pointer;
+			display: inline-flex; align-items: center; gap: 8px;
+			padding: 9px 16px; border-radius: 8px; border: 1px solid transparent;
+			background: var(--accent); color: #fff;
+		}
+		button:hover:not(:disabled) { background: var(--accent-hover); }
+		button:disabled { opacity: 0.7; cursor: progress; }
+		.spinner {
+			width: 14px; height: 14px; border-radius: 50%;
+			border: 2px solid rgba(255, 255, 255, 0.4); border-top-color: #fff;
+			animation: spin 0.8s linear infinite; display: none;
+		}
+		button.loading .spinner { display: inline-block; }
+		@keyframes spin { to { transform: rotate(360deg); } }
+
+		.filters {
+			display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end;
+			margin: 20px 0 8px; padding: 14px 16px;
+			background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+		}
+		.filters label { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+		select {
+			font: inherit; font-size: 0.95rem; color: var(--text); background: var(--bg);
+			border: 1px solid var(--border); border-radius: 7px; padding: 7px 10px; min-width: 160px;
+		}
+		.result-count { margin-left: auto; color: var(--muted); font-size: 0.9rem; padding-bottom: 8px; }
+
+		.status { margin: 12px 0; padding: 12px 14px; border-radius: 8px; font-size: 0.92rem; }
+		.status.info { background: var(--low-bg); color: var(--low-fg); }
+		.status.success { background: var(--high-bg); color: var(--high-fg); }
+		.status.error { background: var(--error-bg); color: var(--error-fg); }
+		.status:empty { display: none; }
+
+		section.topic { margin: 28px 0 8px; }
+		section.topic h2 {
+			display: flex; align-items: baseline; gap: 10px;
+			font-size: 1.1rem; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 2px solid var(--border);
+		}
+		section.topic h2 .count { color: var(--muted); font-weight: 500; font-size: 0.85rem; }
+		.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+
+		article.card {
+			display: flex; flex-direction: column; gap: 8px;
+			background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+			padding: 16px; box-shadow: var(--shadow);
+		}
+		.card-top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+		.card h3 { margin: 0; font-size: 1rem; line-height: 1.35; }
+		.card h3 a { color: var(--text); text-decoration: none; }
+		.card h3 a:hover { color: var(--accent); text-decoration: underline; }
+		.badge {
+			flex: none; min-width: 42px; text-align: center;
+			font-size: 0.8rem; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+		}
+		.badge.high { background: var(--high-bg); color: var(--high-fg); }
+		.badge.mid { background: var(--mid-bg); color: var(--mid-fg); }
+		.badge.low { background: var(--low-bg); color: var(--low-fg); }
+		.meta { color: var(--muted); font-size: 0.83rem; }
+		.meta .dot { margin: 0 6px; }
+		.summary { margin: 0; font-size: 0.92rem; }
+
+		.empty { text-align: center; color: var(--muted); padding: 48px 0; }
+		footer { color: var(--muted); font-size: 0.8rem; padding: 32px 0 40px; text-align: center; }
+	</style>
+</head>
+<body>
+	<header>
+		<div class="wrap header-inner">
+			<div>
+				<h1>📰 News Intelligence Dashboard</h1>
+				<p class="subtitle">AI-curated daily briefing, updated every morning at 7 AM ET</p>
+			</div>
+			<div class="refresh-area">
+				<div class="last-refreshed" id="lastRefreshed">Last refreshed: —</div>
+				<button id="refreshBtn" type="button" title="Run the news agent now and reload articles">
+					<span class="spinner" aria-hidden="true"></span>
+					<span id="refreshLabel">Refresh</span>
+				</button>
+			</div>
+		</div>
+	</header>
+
+	<main class="wrap">
+		<div class="filters" role="search">
+			<label>Topic
+				<select id="topicFilter">
+					<option value="">All topics</option>
+				</select>
+			</label>
+			<label>Min relevance
+				<select id="scoreFilter">
+					<option value="">Any score</option>
+					<option value="3">3+</option>
+					<option value="5">5+</option>
+					<option value="7">7+</option>
+					<option value="8">8+</option>
+					<option value="9">9+</option>
+				</select>
+			</label>
+			<label>Show
+				<select id="limitFilter">
+					<option value="10">10 articles</option>
+					<option value="25">25 articles</option>
+					<option value="50" selected>50 articles</option>
+					<option value="100">100 articles</option>
+				</select>
+			</label>
+			<div class="result-count" id="resultCount"></div>
+		</div>
+
+		<div class="status" id="status" role="status" aria-live="polite"></div>
+		<div id="articles"></div>
+	</main>
+
+	<footer class="wrap">Articles found and summarized by Claude with web search · Cloudflare Workers + D1</footer>
+
+	<script>
+		const API_BASE = "https://news-app-backend.weix99123.workers.dev";
+
+		const els = {
+			topic: document.getElementById("topicFilter"),
+			score: document.getElementById("scoreFilter"),
+			limit: document.getElementById("limitFilter"),
+			articles: document.getElementById("articles"),
+			status: document.getElementById("status"),
+			count: document.getElementById("resultCount"),
+			lastRefreshed: document.getElementById("lastRefreshed"),
+			refreshBtn: document.getElementById("refreshBtn"),
+			refreshLabel: document.getElementById("refreshLabel"),
+		};
+
+		let topicOrder = [];
+
+		function escapeHtml(value) {
+			return String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+		}
+
+		function safeUrl(url) {
+			try {
+				const u = new URL(url);
+				return u.protocol === "http:" || u.protocol === "https:" ? u.href : "#";
+			} catch {
+				return "#";
+			}
+		}
+
+		function scoreClass(score) {
+			if (score >= 8) return "high";
+			if (score >= 5) return "mid";
+			return "low";
+		}
+
+		function formatDate(ymd) {
+			if (!ymd) return "Date unknown";
+			const d = new Date(`${ymd}T12:00:00`);
+			return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+		}
+
+		function formatRefreshed(iso) {
+			if (!iso) return "Last refreshed: never";
+			const d = new Date(iso);
+			const mins = Math.round((Date.now() - d.getTime()) / 60000);
+			const ago = mins < 1 ? "just now" : mins < 60 ? `${mins} min ago` : mins < 1440 ? `${Math.round(mins / 60)} h ago` : `${Math.round(mins / 1440)} d ago`;
+			return `Last refreshed: ${d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} (${ago})`;
+		}
+
+		function setStatus(message, kind = "info") {
+			els.status.className = `status ${kind}`;
+			els.status.textContent = message;
+		}
+
+		function renderCard(a) {
+			const score = Number(a.relevance_score) || 0;
+			return `
+				<article class="card">
+					<div class="card-top">
+						<h3><a href="${escapeHtml(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(a.headline)}</a></h3>
+						<span class="badge ${scoreClass(score)}" title="Relevance score ${score} of 10">${score}/10</span>
+					</div>
+					<div class="meta">${escapeHtml(a.source || "Unknown source")}<span class="dot">·</span>${escapeHtml(formatDate(a.publication_date))}</div>
+					<p class="summary">${escapeHtml(a.summary)}</p>
+				</article>`;
+		}
+
+		function render(data) {
+			const groups = new Map();
+			for (const a of data.articles) {
+				if (!groups.has(a.topic)) groups.set(a.topic, []);
+				groups.get(a.topic).push(a);
+			}
+			// Keep the Worker's topic order, then any topics it doesn't list.
+			const order = [...topicOrder.filter((t) => groups.has(t)), ...[...groups.keys()].filter((t) => !topicOrder.includes(t))];
+
+			els.count.textContent = `${data.count} article${data.count === 1 ? "" : "s"}`;
+			els.lastRefreshed.textContent = formatRefreshed(data.last_refreshed);
+
+			if (data.count === 0) {
+				els.articles.innerHTML = `<div class="empty">No articles match these filters.</div>`;
+				return;
+			}
+			els.articles.innerHTML = order
+				.map((topic) => {
+					const items = groups.get(topic);
+					return `
+						<section class="topic" data-topic="${escapeHtml(topic)}">
+							<h2>${escapeHtml(topic)} <span class="count">${items.length}</span></h2>
+							<div class="grid">${items.map(renderCard).join("")}</div>
+						</section>`;
+				})
+				.join("");
+		}
+
+		function populateTopics(topics) {
+			if (topicOrder.length) return;
+			topicOrder = topics;
+			for (const t of topics) els.topic.add(new Option(t, t));
+		}
+
+		async function loadArticles() {
+			const params = new URLSearchParams({ limit: els.limit.value });
+			if (els.topic.value) params.set("topic", els.topic.value);
+			if (els.score.value) params.set("min_score", els.score.value);
+
+			const res = await fetch(`${API_BASE}/articles?${params}`);
+			if (!res.ok) throw new Error(`API returned ${res.status}`);
+			const data = await res.json();
+			populateTopics(data.topics || []);
+			render(data);
+			return data;
+		}
+
+		async function reload() {
+			try {
+				await loadArticles();
+				if (!els.refreshBtn.disabled) setStatus("");
+			} catch (err) {
+				setStatus(`Could not load articles: ${err.message}`, "error");
+			}
+		}
+
+		async function runAgent() {
+			els.refreshBtn.disabled = true;
+			els.refreshBtn.classList.add("loading");
+			els.refreshLabel.textContent = "Running agent…";
+			setStatus("Searching the web and summarizing new articles. This usually takes about a minute.", "info");
+			try {
+				const res = await fetch(`${API_BASE}/agent`, { method: "POST" });
+				const result = await res.json();
+				if (!res.ok) throw new Error(result.error || `Agent returned ${res.status}`);
+				await loadArticles();
+				const failed = (result.topics || []).filter((t) => t.error);
+				const summary = `Agent finished: ${result.inserted} new, ${result.skipped} already saved, ${result.total_returned_by_claude} found.`;
+				setStatus(failed.length ? `${summary} Failed: ${failed.map((t) => t.topic).join(", ")}.` : summary, failed.length ? "error" : "success");
+			} catch (err) {
+				setStatus(`Refresh failed: ${err.message}`, "error");
+			} finally {
+				els.refreshBtn.disabled = false;
+				els.refreshBtn.classList.remove("loading");
+				els.refreshLabel.textContent = "Refresh";
+			}
+		}
+
+		els.topic.addEventListener("change", reload);
+		els.score.addEventListener("change", reload);
+		els.limit.addEventListener("change", reload);
+		els.refreshBtn.addEventListener("click", runAgent);
+
+		setStatus("Loading articles…");
+		reload();
+	</script>
+</body>
+</html>
