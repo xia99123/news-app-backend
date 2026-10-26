@@ -5,12 +5,19 @@
  *   GET  /agent     run the news pipeline now (also runs daily at 7 AM ET via cron)
  *   GET  /articles  query stored articles (?topic=&from=&to=&source=&min_score=&limit=)
  *
- * Secrets: ANTHROPIC_API_KEY (set with `wrangler secret put ANTHROPIC_API_KEY`)
- * Bindings: DB (D1 database news-db)
+ * Authenticated external triggers (run the agent in the background via a Workflow):
+ *   POST /trigger           Authorization: Bearer <AGENT_TRIGGER_TOKEN>  -> 202 + run id
+ *   GET  /trigger/<run id>  Authorization: Bearer <AGENT_TRIGGER_TOKEN>  -> run status + result
+ *   POST /slack/command     Slack slash command, verified with SLACK_SIGNING_SECRET
+ *
+ * Secrets: ANTHROPIC_API_KEY, AGENT_TRIGGER_TOKEN, SLACK_SIGNING_SECRET (optional)
+ * Bindings: DB (D1 database news-db), AGENT_WORKFLOW (Workflow running AgentRunWorkflow)
  */
 import Anthropic from "@anthropic-ai/sdk";
+import { WorkflowEntrypoint } from "cloudflare:workers";
 
-const VERSION = "1.1.0";
+const VERSION = "1.2.0";
+const DASHBOARD_URL = "https://news-intelligence-dashboard.pages.dev";
 
 // Opus 5.5 is rate-limited to 0 RPM in this account's Default workspace.
 const MODEL = "claude-sonnet-5-5";
@@ -81,9 +88,17 @@ export default {
 					return json(await runAgent(env));
 				case "/articles":
 					return json(await listArticles(env, url.searchParams));
-				default:
-					return json({ error: "Not found", endpoints: ["/health", "/agent", "/articles"] }, 404);
+				case "/trigger":
+					if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+					return await handleTrigger(request, env);
+				case "/slack/command":
+					if (request.method !== "POST") return json({ error: "Use POST" }, 405);
+					return await handleSlackCommand(request, env);
 			}
+			if (url.pathname.startsWith("/trigger/") && request.method === "GET") {
+				return await handleTriggerStatus(request, env, decodeURIComponent(url.pathname.slice("/trigger/".length)));
+			}
+			return json({ error: "Not found", endpoints: ["/health", "/agent", "/articles", "/trigger", "/slack/command"] }, 404);
 		} catch (err) {
 			console.error(err);
 			return json({ error: err.message ?? String(err) }, 500);
@@ -105,6 +120,123 @@ export default {
 		ctx.waitUntil(runAgent(env).then((result) => console.log("Scheduled agent run:", JSON.stringify(result))));
 	},
 };
+
+// ---------------------------------------------------------------------------
+// Authenticated external triggers
+//
+// A run takes about a minute, longer than Slack (3 s) or most webhook senders wait,
+// so triggers start a Workflow instance and return immediately. The Workflow runs
+// the agent durably in the background and, for Slack, posts the result back.
+// ---------------------------------------------------------------------------
+
+export class AgentRunWorkflow extends WorkflowEntrypoint {
+	async run(event, step) {
+		const { source, slackResponseUrl } = event.payload ?? {};
+		// No retries: a retry would re-run every Claude search and bill it again.
+		const result = await step.do("run news agent", { retries: { limit: 0, delay: "1 second" }, timeout: "10 minutes" }, () =>
+			runAgent(this.env),
+		);
+		console.log(`Agent run (${source}):`, JSON.stringify(result));
+
+		if (slackResponseUrl) {
+			await step.do("notify slack", async () => {
+				const res = await fetch(slackResponseUrl, {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ response_type: "in_channel", text: formatRunSummary(result) }),
+				});
+				if (!res.ok) throw new Error(`Slack response_url returned ${res.status}`);
+			});
+		}
+		return result;
+	}
+}
+
+function formatRunSummary(result) {
+	const lines = result.topics.map((t) =>
+		t.error ? `• ${t.topic}: failed (${t.error.slice(0, 120)})` : `• ${t.topic}: ${t.inserted} new, ${t.skipped} already saved`,
+	);
+	return [
+		`:newspaper: News agent finished: *${result.inserted} new*, ${result.skipped} skipped, ${result.total_returned_by_claude} found (${result.total_in_database} in database).`,
+		...lines,
+		`Dashboard: ${DASHBOARD_URL}`,
+	].join("\n");
+}
+
+async function startAgentRun(env, payload) {
+	const instance = await env.AGENT_WORKFLOW.create({ params: { ...payload, requestedAt: new Date().toISOString() } });
+	return instance.id;
+}
+
+// Compare SHA-256 digests in constant time so response timing doesn't leak the token.
+async function secretsMatch(provided, expected) {
+	const enc = new TextEncoder();
+	const [a, b] = await Promise.all([
+		crypto.subtle.digest("SHA-256", enc.encode(provided)),
+		crypto.subtle.digest("SHA-256", enc.encode(expected)),
+	]);
+	return crypto.subtle.timingSafeEqual(a, b);
+}
+
+async function isAuthorized(request, env) {
+	if (!env.AGENT_TRIGGER_TOKEN) return false;
+	const header = request.headers.get("Authorization") ?? "";
+	const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+	return token.length > 0 && (await secretsMatch(token, env.AGENT_TRIGGER_TOKEN));
+}
+
+const UNAUTHORIZED = () => json({ error: "Unauthorized: send Authorization: Bearer <AGENT_TRIGGER_TOKEN>" }, 401);
+
+// POST /trigger  ->  202 { run_id, status_url }
+async function handleTrigger(request, env) {
+	if (!(await isAuthorized(request, env))) return UNAUTHORIZED();
+	const body = await request.json().catch(() => ({}));
+	const source = typeof body.source === "string" ? body.source.slice(0, 100) : "external";
+	const runId = await startAgentRun(env, { source });
+	const statusUrl = new URL(`/trigger/${runId}`, request.url).href;
+	return json({ status: "started", run_id: runId, status_url: statusUrl, message: "Agent is running; it usually takes about a minute." }, 202);
+}
+
+// GET /trigger/<run id>  ->  { status, result? }
+async function handleTriggerStatus(request, env, runId) {
+	if (!(await isAuthorized(request, env))) return UNAUTHORIZED();
+	let instance;
+	try {
+		instance = await env.AGENT_WORKFLOW.get(runId);
+	} catch {
+		return json({ error: "Unknown run id" }, 404);
+	}
+	const { status, output, error } = await instance.status();
+	return json({ run_id: runId, status, result: output ?? null, error: error ?? null });
+}
+
+// POST /slack/command  (Slack slash command, form-encoded)
+// Verified per https://api.slack.com/authentication/verifying-requests-from-slack
+async function handleSlackCommand(request, env) {
+	if (!env.SLACK_SIGNING_SECRET) return json({ error: "Slack trigger is not configured" }, 503);
+
+	const rawBody = await request.text();
+	const timestamp = request.headers.get("X-Slack-Request-Timestamp") ?? "";
+	const signature = request.headers.get("X-Slack-Signature") ?? "";
+	const ageSeconds = Math.abs(Date.now() / 1000 - Number(timestamp));
+	if (!timestamp || !(ageSeconds <= 300)) return json({ error: "Stale or missing Slack timestamp" }, 401);
+
+	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(env.SLACK_SIGNING_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+	const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`v0:${timestamp}:${rawBody}`));
+	const expected = "v0=" + [...new Uint8Array(mac)].map((b) => b.toString(16).padStart(2, "0")).join("");
+	if (!(await secretsMatch(signature, expected))) return json({ error: "Invalid Slack signature" }, 401);
+
+	const form = new URLSearchParams(rawBody);
+	const responseUrl = form.get("response_url");
+	await startAgentRun(env, {
+		source: `slack:${form.get("team_domain") ?? "?"}/${form.get("user_name") ?? "?"}`,
+		slackResponseUrl: responseUrl?.startsWith("https://hooks.slack.com/") ? responseUrl : null,
+	});
+	return json({
+		response_type: "ephemeral",
+		text: ":hourglass_flowing_sand: Running the news agent. Results will be posted here in about a minute.",
+	});
+}
 
 // ---------------------------------------------------------------------------
 // /agent - search, summarize, store

@@ -23,3 +23,51 @@ describe("news-app-backend worker", () => {
 		expect((await response.json()).error).toBe("Not found");
 	});
 });
+
+describe("authenticated external triggers", () => {
+	it("POST /trigger without a token is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/trigger", { method: "POST" });
+		expect(response.status).toBe(401);
+	});
+
+	it("POST /trigger with a wrong token is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/trigger", {
+			method: "POST",
+			headers: { Authorization: "Bearer not-the-real-token" },
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it("GET /trigger/<id> without a token is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/trigger/some-run-id");
+		expect(response.status).toBe(401);
+	});
+
+	it("GET /trigger is not allowed", async () => {
+		const response = await SELF.fetch("http://example.com/trigger");
+		expect(response.status).toBe(405);
+	});
+
+	it("POST /slack/command with a bad signature is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/slack/command", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/x-www-form-urlencoded",
+				"X-Slack-Request-Timestamp": String(Math.floor(Date.now() / 1000)),
+				"X-Slack-Signature": "v0=deadbeef",
+			},
+			body: "command=%2Fnews&text=",
+		});
+		expect(response.status).toBe(401);
+		expect((await response.json()).error).toBe("Invalid Slack signature");
+	});
+
+	it("POST /slack/command with a stale timestamp is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/slack/command", {
+			method: "POST",
+			headers: { "X-Slack-Request-Timestamp": String(Math.floor(Date.now() / 1000) - 3600), "X-Slack-Signature": "v0=x" },
+			body: "command=%2Fnews",
+		});
+		expect(response.status).toBe(401);
+	});
+});

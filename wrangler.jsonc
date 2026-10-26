@@ -24,6 +24,16 @@
 	 * 11:00 UTC (EDT) and 12:00 UTC (EST); the scheduled() handler skips the
 	 * one that isn't 7 AM local time.
 	 */
+	/**
+	 * Background agent runs started by the authenticated /trigger and /slack/command endpoints.
+	 */
+	"workflows": [
+		{
+			"name": "news-agent-run",
+			"binding": "AGENT_WORKFLOW",
+			"class_name": "AgentRunWorkflow"
+		}
+	],
 	"triggers": {
 		"crons": ["0 11 * * *", "0 12 * * *"]
 	}
