@@ -10,6 +10,8 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 
+const VERSION = "1.1.0";
+
 // Opus 5.5 is rate-limited to 0 RPM in this account's Default workspace.
 const MODEL = "claude-sonnet-5-5";
 const ARTICLES_PER_TOPIC_SEARCH = 5;
@@ -74,7 +76,7 @@ export default {
 			switch (url.pathname) {
 				case "/":
 				case "/health":
-					return json({ status: "ok", service: "news-app-backend", timestamp: new Date().toISOString() });
+					return json({ status: "ok", service: "news-app-backend", version: VERSION, timestamp: new Date().toISOString() });
 				case "/agent":
 					return json(await runAgent(env));
 				case "/articles":
