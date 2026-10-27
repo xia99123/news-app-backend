@@ -6,10 +6,13 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev",
     "start": "wrangler dev",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "playwright test --grep-invert @websearch",
+    "test:e2e:full": "playwright test"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.4.3",
+    "@playwright/test": "^1.64.1",
     "vitest": "~5.0.3",
     "wrangler": "^4.153.0"
   },

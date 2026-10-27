@@ -9,4 +9,6 @@ export default defineConfig({
 			miniflare: { bindings: { SLACK_SIGNING_SECRET: "test-signing-secret", AGENT_PASSWORD: "test-agent-password" } },
 		}),
 	],
+	// Worker unit tests only; e2e/ is run by Playwright against the live site.
+	test: { include: ["test/**/*.spec.js"] },
 });
