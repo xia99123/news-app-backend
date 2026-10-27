@@ -97,3 +97,32 @@ describe("password-protected pipeline endpoint", () => {
 		expect((await SELF.fetch("http://example.com/articles")).status).not.toBe(401);
 	});
 });
+
+describe("chat endpoint", () => {
+	const auth = { "X-Agent-Password": "test-agent-password", "Content-Type": "application/json" };
+
+	it("POST /chat without a password is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/chat", { method: "POST", body: JSON.stringify({ question: "hi" }) });
+		expect(response.status).toBe(401);
+	});
+
+	it("GET /chat is not allowed", async () => {
+		expect((await SELF.fetch("http://example.com/chat")).status).toBe(405);
+	});
+
+	it("POST /chat without a question is a 400", async () => {
+		const response = await SELF.fetch("http://example.com/chat", { method: "POST", headers: auth, body: "{}" });
+		expect(response.status).toBe(400);
+	});
+
+	it("POST /chat with an unknown model is a 400 listing the options", async () => {
+		const response = await SELF.fetch("http://example.com/chat", {
+			method: "POST",
+			headers: auth,
+			body: JSON.stringify({ question: "What's new?", model: "gpt-4" }),
+		});
+		expect(response.status).toBe(400);
+		const body = await response.json();
+		expect(Object.keys(body.available_models)).toEqual(["sonnet", "haiku", "opus"]);
+	});
+});
