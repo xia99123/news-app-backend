@@ -118,6 +118,23 @@
 
 		.empty { text-align: center; color: var(--muted); padding: 48px 0; }
 		footer { color: var(--muted); font-size: 0.8rem; padding: 32px 0 40px; text-align: center; }
+
+		dialog {
+			border: 1px solid var(--border); border-radius: var(--radius);
+			background: var(--surface); color: var(--text);
+			padding: 20px 22px; width: min(380px, calc(100vw - 32px));
+			box-shadow: 0 12px 32px rgba(16, 24, 40, 0.18);
+		}
+		dialog::backdrop { background: rgba(15, 18, 22, 0.45); }
+		dialog h2 { margin: 0 0 6px; font-size: 1.05rem; }
+		dialog p { margin: 0 0 14px; color: var(--muted); font-size: 0.88rem; }
+		dialog input {
+			width: 100%; font: inherit; color: var(--text); background: var(--bg);
+			border: 1px solid var(--border); border-radius: 7px; padding: 9px 11px;
+		}
+		dialog .actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+		button.secondary { background: transparent; color: var(--text); border-color: var(--border); }
+		button.secondary:hover:not(:disabled) { background: var(--bg); }
 	</style>
 </head>
 <body>
@@ -170,6 +187,18 @@
 	</main>
 
 	<footer class="wrap">Articles found and summarized by Claude with web search · Cloudflare Workers + D1</footer>
+
+	<dialog id="passwordDialog" aria-labelledby="passwordTitle">
+		<form method="dialog" id="passwordForm">
+			<h2 id="passwordTitle">Enter the refresh password</h2>
+			<p id="passwordHint">Running the news agent is password-protected. It will be remembered in this browser.</p>
+			<input type="password" id="passwordInput" autocomplete="current-password" required aria-label="Refresh password" />
+			<div class="actions">
+				<button type="button" class="secondary" id="passwordCancel">Cancel</button>
+				<button type="submit" value="ok">Run agent</button>
+			</div>
+		</form>
+	</dialog>
 
 	<script>
 		const API_BASE = "https://news-app-backend.weix99123.workers.dev";
@@ -295,13 +324,53 @@
 			}
 		}
 
+		// The pipeline password is never stored in this file (it's public). The user enters it
+		// once and it is kept in this browser's localStorage, then sent on every Refresh.
+		const PASSWORD_KEY = "newsAgentPassword";
+		const passwordDialog = document.getElementById("passwordDialog");
+		const passwordInput = document.getElementById("passwordInput");
+		const passwordHint = document.getElementById("passwordHint");
+
+		function askForPassword(hint) {
+			return new Promise((resolve) => {
+				passwordHint.textContent = hint;
+				passwordInput.value = "";
+				const onClose = () => {
+					passwordDialog.removeEventListener("close", onClose);
+					resolve(passwordDialog.returnValue === "ok" ? passwordInput.value.trim() : "");
+				};
+				passwordDialog.addEventListener("close", onClose);
+				passwordDialog.returnValue = "";
+				passwordDialog.showModal();
+				passwordInput.focus();
+			});
+		}
+		document.getElementById("passwordCancel").addEventListener("click", () => passwordDialog.close(""));
+
+		async function getPassword() {
+			let password = localStorage.getItem(PASSWORD_KEY);
+			if (!password) {
+				password = await askForPassword("Running the news agent is password-protected. It will be remembered in this browser.");
+				if (password) localStorage.setItem(PASSWORD_KEY, password);
+			}
+			return password;
+		}
+
 		async function runAgent() {
+			const password = await getPassword();
+			if (!password) return;
+
 			els.refreshBtn.disabled = true;
 			els.refreshBtn.classList.add("loading");
 			els.refreshLabel.textContent = "Running agent…";
 			setStatus("Searching the web and summarizing new articles. This usually takes about a minute.", "info");
 			try {
-				const res = await fetch(`${API_BASE}/agent`, { method: "POST" });
+				const res = await fetch(`${API_BASE}/agent`, { method: "POST", headers: { "X-Agent-Password": password } });
+				if (res.status === 401) {
+					localStorage.removeItem(PASSWORD_KEY);
+					setStatus("Wrong refresh password. Click Refresh to enter it again.", "error");
+					return;
+				}
 				const result = await res.json();
 				if (!res.ok) throw new Error(result.error || `Agent returned ${res.status}`);
 				await loadArticles();

@@ -2,7 +2,8 @@
  * News Intelligence App - backend Worker
  *
  *   GET  /health    service status + timestamp
- *   GET  /agent     run the news pipeline now (also runs daily at 7 AM ET via cron)
+ *   GET|POST /agent run the news pipeline now; requires header X-Agent-Password: <AGENT_PASSWORD>
+ *                   (also runs daily at 7 AM ET via cron)
  *   GET  /articles  query stored articles (?topic=&from=&to=&source=&min_score=&limit=)
  *
  * Authenticated external triggers (run the agent in the background via a Workflow):
@@ -10,13 +11,13 @@
  *   GET  /trigger/<run id>  Authorization: Bearer <AGENT_TRIGGER_TOKEN>  -> run status + result
  *   POST /slack/command     Slack slash command, verified with SLACK_SIGNING_SECRET
  *
- * Secrets: ANTHROPIC_API_KEY, AGENT_TRIGGER_TOKEN, SLACK_SIGNING_SECRET (optional)
+ * Secrets: ANTHROPIC_API_KEY, AGENT_PASSWORD, AGENT_TRIGGER_TOKEN, SLACK_SIGNING_SECRET (optional)
  * Bindings: DB (D1 database news-db), AGENT_WORKFLOW (Workflow running AgentRunWorkflow)
  */
 import Anthropic from "@anthropic-ai/sdk";
 import { WorkflowEntrypoint } from "cloudflare:workers";
 
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const DASHBOARD_URL = "https://news-intelligence-dashboard.pages.dev";
 
 // Opus 5.5 is rate-limited to 0 RPM in this account's Default workspace.
@@ -61,7 +62,7 @@ const TOPICS = [
 const CORS_HEADERS = {
 	"Access-Control-Allow-Origin": "*",
 	"Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-	"Access-Control-Allow-Headers": "Content-Type, Authorization",
+	"Access-Control-Allow-Headers": "Content-Type, Authorization, X-Agent-Password",
 	"Access-Control-Max-Age": "86400",
 };
 
@@ -85,6 +86,10 @@ export default {
 				case "/health":
 					return json({ status: "ok", service: "news-app-backend", version: VERSION, timestamp: new Date().toISOString() });
 				case "/agent":
+					if (!env.AGENT_PASSWORD) return json({ error: "Pipeline password is not configured" }, 503);
+					if (!(await secretsMatch(request.headers.get("X-Agent-Password") ?? "", env.AGENT_PASSWORD))) {
+						return json({ error: "Unauthorized: a valid X-Agent-Password header is required to run the pipeline" }, 401);
+					}
 					return json(await runAgent(env));
 				case "/articles":
 					return json(await listArticles(env, url.searchParams));

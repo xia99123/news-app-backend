@@ -71,3 +71,29 @@ describe("authenticated external triggers", () => {
 		expect(response.status).toBe(401);
 	});
 });
+
+describe("password-protected pipeline endpoint", () => {
+	it("/agent without a password is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/agent", { method: "POST" });
+		expect(response.status).toBe(401);
+		expect((await response.json()).error).toMatch(/X-Agent-Password/);
+	});
+
+	it("/agent with a wrong password is rejected", async () => {
+		const response = await SELF.fetch("http://example.com/agent", {
+			method: "POST",
+			headers: { "X-Agent-Password": "wrong-password" },
+		});
+		expect(response.status).toBe(401);
+	});
+
+	it("CORS preflight allows the X-Agent-Password header", async () => {
+		const response = await SELF.fetch("http://example.com/agent", { method: "OPTIONS" });
+		expect(response.headers.get("Access-Control-Allow-Headers")).toContain("X-Agent-Password");
+	});
+
+	it("/health and /articles stay public", async () => {
+		expect((await SELF.fetch("http://example.com/health")).status).toBe(200);
+		expect((await SELF.fetch("http://example.com/articles")).status).not.toBe(401);
+	});
+});
