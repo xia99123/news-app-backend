@@ -171,14 +171,16 @@
 		.web-sources a { color: var(--accent); }
 
 		/* Under the hood */
-		.hood { border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+		.hood { flex: none; border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+		.chat-header, .chat-controls, .chat-form, .chat-usage { flex: none; }
+		.chat-log { min-height: 160px; }
 		.hood summary { cursor: pointer; padding: 9px 16px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; list-style: none; }
 		.hood summary::-webkit-details-marker { display: none; }
 		.hood summary::after { content: "▸"; margin-left: auto; transition: transform 0.15s; }
 		.hood[open] summary::after { transform: rotate(90deg); }
 		.hood-badge { font-size: 0.72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--low-bg); color: var(--low-fg); }
 		.hood-badge.on { background: var(--high-bg); color: var(--high-fg); }
-		.hood-body { padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 12px; max-height: 300px; overflow-y: auto; }
+		.hood-body { padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 12px; max-height: 38vh; overflow-y: auto; }
 		.switch-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 		.switch-row small { color: var(--muted); }
 		.switch-row input { position: absolute; opacity: 0; width: 1px; height: 1px; }
