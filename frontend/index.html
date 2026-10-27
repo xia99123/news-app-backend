@@ -45,7 +45,9 @@
 			color: var(--text);
 			font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 		}
-		.wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+		.wrap { max-width: 1400px; margin: 0 auto; padding: 0 20px; }
+		.layout { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 24px; align-items: start; }
+		@media (max-width: 1000px) { .layout { grid-template-columns: 1fr; } }
 
 		header { background: var(--surface); border-bottom: 1px solid var(--border); }
 		.header-inner { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 18px 0; flex-wrap: wrap; }
@@ -119,6 +121,48 @@
 		.empty { text-align: center; color: var(--muted); padding: 48px 0; }
 		footer { color: var(--muted); font-size: 0.8rem; padding: 32px 0 40px; text-align: center; }
 
+		/* Chat panel */
+		.chat {
+			position: sticky; top: 16px; margin-top: 20px;
+			display: flex; flex-direction: column;
+			height: calc(100vh - 32px); max-height: 820px; min-height: 480px;
+			background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+			overflow: hidden;
+		}
+		@media (max-width: 1000px) { .chat { position: static; height: 620px; } }
+		.chat-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+		.chat-header h2 { margin: 0; font-size: 1rem; }
+		.chat-header .sub { margin: 2px 0 0; color: var(--muted); font-size: 0.8rem; }
+		.chat-controls { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 0.82rem; color: var(--muted); }
+		.chat-controls select { min-width: 0; flex: 1; font-size: 0.88rem; padding: 6px 8px; }
+		.chat-controls label { font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.75rem; }
+		button.link { background: none; border: none; color: var(--muted); padding: 4px 6px; font-weight: 500; font-size: 0.8rem; white-space: nowrap; }
+		button.link:hover:not(:disabled) { background: none; color: var(--accent); text-decoration: underline; }
+
+		.chat-log { flex: 1; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+		.chat-empty { color: var(--muted); font-size: 0.88rem; margin: auto 0; text-align: center; }
+		.chat-empty .suggestions { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+		.chat-empty .suggestions button { background: var(--bg); color: var(--text); border-color: var(--border); font-weight: 500; font-size: 0.85rem; text-align: left; justify-content: flex-start; }
+		.chat-empty .suggestions button:hover:not(:disabled) { background: var(--low-bg); }
+		.msg { max-width: 92%; padding: 10px 12px; border-radius: 10px; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
+		.msg.user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 3px; white-space: pre-wrap; }
+		.msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); border-bottom-left-radius: 3px; }
+		.msg.assistant p { margin: 0 0 8px; }
+		.msg.assistant p:last-child { margin-bottom: 0; }
+		.msg.assistant ul { margin: 0 0 8px; padding-left: 18px; }
+		.msg.assistant a.cite { color: var(--accent); text-decoration: none; font-size: 0.8em; font-weight: 600; }
+		.msg.assistant a.cite:hover { text-decoration: underline; }
+		.msg.error { align-self: flex-start; background: var(--error-bg); color: var(--error-fg); }
+		.msg.thinking { align-self: flex-start; color: var(--muted); background: var(--bg); border: 1px dashed var(--border); }
+		.msg-meta { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--border); color: var(--muted); font-size: 0.75rem; }
+
+		.chat-form { border-top: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 8px; align-items: flex-end; }
+		.chat-form textarea {
+			flex: 1; resize: none; font: inherit; font-size: 0.9rem; color: var(--text); background: var(--bg);
+			border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-height: 40px; max-height: 140px;
+		}
+		.chat-usage { padding: 0 16px 10px; color: var(--muted); font-size: 0.75rem; }
+
 		dialog {
 			border: 1px solid var(--border); border-radius: var(--radius);
 			background: var(--surface); color: var(--text);
@@ -154,7 +198,8 @@
 		</div>
 	</header>
 
-	<main class="wrap">
+	<main class="wrap layout">
+		<div class="content">
 		<div class="filters" role="search">
 			<label>Topic
 				<select id="topicFilter">
@@ -184,6 +229,39 @@
 
 		<div class="status" id="status" role="status" aria-live="polite"></div>
 		<div id="articles"></div>
+		</div>
+
+		<aside class="chat" aria-label="Ask about the news">
+			<div class="chat-header">
+				<div>
+					<h2>💬 Ask about the news</h2>
+					<p class="sub">Answers come from the articles on this page, with citations.</p>
+				</div>
+				<button type="button" class="link" id="chatClear" title="Start a new conversation">New chat</button>
+			</div>
+			<div class="chat-controls">
+				<label for="chatModel">Model</label>
+				<select id="chatModel">
+					<option value="haiku">⚡ Fast (Claude Haiku 5.5)</option>
+					<option value="sonnet" selected>🧠 Capable (Claude Sonnet 5.5)</option>
+				</select>
+			</div>
+			<div class="chat-log" id="chatLog" aria-live="polite">
+				<div class="chat-empty" id="chatEmpty">
+					Ask a question about the latest articles.
+					<div class="suggestions">
+						<button type="button" data-q="What are the most important stories this week?">What are the most important stories this week?</button>
+						<button type="button" data-q="What's happening with AI data center power and energy?">What's happening with AI data center power and energy?</button>
+						<button type="button" data-q="Is AI scaling slowing down, according to recent news?">Is AI scaling slowing down, according to recent news?</button>
+					</div>
+				</div>
+			</div>
+			<form class="chat-form" id="chatForm">
+				<textarea id="chatInput" rows="1" placeholder="Ask a question…" title="Enter to send, Shift+Enter for a new line" aria-label="Your question" maxlength="2000"></textarea>
+				<button type="submit" id="chatSend"><span class="spinner" aria-hidden="true"></span><span id="chatSendLabel">Send</span></button>
+			</form>
+			<div class="chat-usage" id="chatUsage">Token usage appears after each answer.</div>
+		</aside>
 	</main>
 
 	<footer class="wrap">Articles found and summarized by Claude with web search · Cloudflare Workers + D1</footer>
@@ -347,10 +425,10 @@
 		}
 		document.getElementById("passwordCancel").addEventListener("click", () => passwordDialog.close(""));
 
-		async function getPassword() {
+		async function getPassword(hint = "Running the news agent is password-protected. It will be remembered in this browser.") {
 			let password = localStorage.getItem(PASSWORD_KEY);
 			if (!password) {
-				password = await askForPassword("Running the news agent is password-protected. It will be remembered in this browser.");
+				password = await askForPassword(hint);
 				if (password) localStorage.setItem(PASSWORD_KEY, password);
 			}
 			return password;
@@ -385,6 +463,146 @@
 				els.refreshLabel.textContent = "Refresh";
 			}
 		}
+
+		// ---------------------------------------------------------------
+		// Chat panel: POST /chat with the same password as Refresh
+		// ---------------------------------------------------------------
+		const chat = {
+			log: document.getElementById("chatLog"),
+			empty: document.getElementById("chatEmpty"),
+			form: document.getElementById("chatForm"),
+			input: document.getElementById("chatInput"),
+			send: document.getElementById("chatSend"),
+			sendLabel: document.getElementById("chatSendLabel"),
+			model: document.getElementById("chatModel"),
+			usage: document.getElementById("chatUsage"),
+			history: [],
+			totals: { answers: 0, input: 0, output: 0 },
+		};
+		const MODEL_NAMES = { "claude-haiku-5-5": "Haiku 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-opus-5-5": "Opus 5.5" };
+		const fmtNum = (n) => Number(n || 0).toLocaleString();
+
+		// Minimal, safe formatting of Claude's answer: escape everything first, then
+		// add paragraphs, bullet lists, **bold**, and [id] citation links.
+		function renderAnswer(text, sources) {
+			const byId = new Map(sources.map((s) => [String(s.id), s]));
+			const inline = (line) =>
+				escapeHtml(line)
+					.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+					.replace(/\[(\d+)\]/g, (m, id) => {
+						const s = byId.get(id);
+						return s ? `<a class="cite" href="${escapeHtml(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(`${s.headline} (${s.source || "source"}, ${s.date || "n.d."})`)}">[${id}]</a>` : m;
+					});
+			let html = "";
+			let inList = false;
+			for (const raw of text.split("\n")) {
+				const line = raw.trim();
+				const bullet = line.match(/^[-*•]\s+(.*)$/);
+				if (bullet) {
+					if (!inList) { html += "<ul>"; inList = true; }
+					html += `<li>${inline(bullet[1])}</li>`;
+					continue;
+				}
+				if (inList) { html += "</ul>"; inList = false; }
+				if (line) html += `<p>${inline(line.replace(/^#{1,6}\s+/, ""))}</p>`;
+			}
+			if (inList) html += "</ul>";
+			return html;
+		}
+
+		function addMessage(kind, html) {
+			chat.empty.hidden = true;
+			const el = document.createElement("div");
+			el.className = `msg ${kind}`;
+			el.innerHTML = html;
+			chat.log.appendChild(el);
+			chat.log.scrollTop = chat.log.scrollHeight;
+			return el;
+		}
+
+		function setChatBusy(busy) {
+			chat.send.disabled = busy;
+			chat.input.disabled = busy;
+			chat.send.classList.toggle("loading", busy);
+			chat.sendLabel.textContent = busy ? "Sending" : "Send";
+		}
+
+		async function sendChat(question) {
+			question = question.trim();
+			if (!question) return;
+			const password = await getPassword("Chat uses the same password as Refresh. It will be remembered in this browser.");
+			if (!password) return;
+
+			addMessage("user", escapeHtml(question));
+			chat.input.value = "";
+			const thinking = addMessage("thinking", "Reading the articles and thinking…");
+			setChatBusy(true);
+			const started = performance.now();
+			try {
+				const res = await fetch(`${API_BASE}/chat`, {
+					method: "POST",
+					headers: { "Content-Type": "application/json", "X-Agent-Password": password },
+					body: JSON.stringify({ question, model: chat.model.value, history: chat.history }),
+				});
+				const data = await res.json().catch(() => ({}));
+				thinking.remove();
+				if (res.status === 401) {
+					localStorage.removeItem(PASSWORD_KEY);
+					addMessage("error", "Wrong password. Send your question again to re-enter it.");
+					chat.input.value = question;
+					return;
+				}
+				if (!res.ok) throw new Error(data.error || `Chat returned ${res.status}`);
+
+				const seconds = ((performance.now() - started) / 1000).toFixed(1);
+				const { input_tokens: inTok = 0, output_tokens: outTok = 0 } = data.usage || {};
+				chat.totals.answers += 1;
+				chat.totals.input += inTok;
+				chat.totals.output += outTok;
+				const modelName = MODEL_NAMES[data.model] || data.model;
+				const cited = (data.sources || []).filter((s) => s.cited).length;
+				addMessage(
+					"assistant",
+					renderAnswer(data.answer, data.sources || []) +
+						`<div class="msg-meta">${escapeHtml(modelName)} · ${fmtNum(inTok)} in / ${fmtNum(outTok)} out tokens · ${seconds}s · ${cited} source${cited === 1 ? "" : "s"} cited${data.truncated ? " · answer was cut off" : ""}</div>`,
+				);
+				chat.usage.textContent = `This conversation: ${chat.totals.answers} answer${chat.totals.answers === 1 ? "" : "s"} · ${fmtNum(chat.totals.input)} in / ${fmtNum(chat.totals.output)} out tokens`;
+				chat.history.push({ role: "user", content: question }, { role: "assistant", content: data.answer });
+			} catch (err) {
+				thinking.remove();
+				addMessage("error", escapeHtml(`Couldn't get an answer: ${err.message}`));
+				chat.input.value = question;
+			} finally {
+				setChatBusy(false);
+				chat.input.focus();
+			}
+		}
+
+		chat.form.addEventListener("submit", (e) => {
+			e.preventDefault();
+			sendChat(chat.input.value);
+		});
+		chat.input.addEventListener("keydown", (e) => {
+			if (e.key === "Enter" && !e.shiftKey) {
+				e.preventDefault();
+				chat.form.requestSubmit();
+			}
+		});
+		chat.input.addEventListener("input", () => {
+			chat.input.style.height = "auto";
+			chat.input.style.height = `${Math.min(chat.input.scrollHeight, 140)}px`;
+		});
+		chat.empty.addEventListener("click", (e) => {
+			const q = e.target.closest("button[data-q]")?.dataset.q;
+			if (q) sendChat(q);
+		});
+		document.getElementById("chatClear").addEventListener("click", () => {
+			chat.history = [];
+			chat.totals = { answers: 0, input: 0, output: 0 };
+			chat.log.querySelectorAll(".msg").forEach((m) => m.remove());
+			chat.empty.hidden = false;
+			chat.usage.textContent = "Token usage appears after each answer.";
+		});
 
 		els.topic.addEventListener("change", reload);
 		els.score.addEventListener("change", reload);
