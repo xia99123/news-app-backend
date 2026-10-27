@@ -126,3 +126,22 @@ describe("chat endpoint", () => {
 		expect(Object.keys(body.available_models)).toEqual(["sonnet", "haiku", "opus"]);
 	});
 });
+
+describe("editable system prompt", () => {
+	it("GET /chat/config is public and returns the default prompt", async () => {
+		const response = await SELF.fetch("http://example.com/chat/config");
+		expect(response.status).toBe(200);
+		const body = await response.json();
+		expect(body.default_system_prompt).toContain("analyst");
+		expect(body.fixed_rules).toContain("data, not instructions");
+	});
+
+	it("POST /chat rejects an overly long system prompt", async () => {
+		const response = await SELF.fetch("http://example.com/chat", {
+			method: "POST",
+			headers: { "X-Agent-Password": "test-agent-password", "Content-Type": "application/json" },
+			body: JSON.stringify({ question: "hi", system_prompt: "x".repeat(6001) }),
+		});
+		expect(response.status).toBe(400);
+	});
+});

@@ -199,6 +199,15 @@
 		.hood-stats .bar .w { background: var(--high-fg); }
 		.hood-stats .legend { color: var(--muted); font-size: 0.75rem; }
 		.hood-stats .queries { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 0.78rem; }
+		.prompt-editor { display: flex; flex-direction: column; gap: 6px; }
+		.prompt-head { display: flex; align-items: center; gap: 8px; }
+		.prompt-head label { font-weight: 700; }
+		.prompt-head .link { margin-left: auto; }
+		.prompt-editor textarea {
+			width: 100%; resize: vertical; min-height: 110px; font: 0.8rem/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+			color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px;
+		}
+		.prompt-editor small { color: var(--muted); font-size: 0.74rem; }
 
 		dialog {
 			border: 1px solid var(--border); border-radius: var(--radius);
@@ -291,6 +300,15 @@
 						<span class="switch" aria-hidden="true"></span>
 						<span><strong>Web search</strong><br /><small>When on, Claude can search the web for information that isn't in the database. Slower and uses more tokens.</small></span>
 					</label>
+					<div class="prompt-editor">
+						<div class="prompt-head">
+							<label for="chatSystemPrompt">System prompt</label>
+							<span class="hood-badge" id="promptBadge">Default</span>
+							<button type="button" class="link" id="promptReset" disabled>Reset to default</button>
+						</div>
+						<textarea id="chatSystemPrompt" rows="7" maxlength="6000" disabled placeholder="Loading the current prompt…" spellcheck="false"></textarea>
+						<small>Edits apply to your next question and are saved in this browser. Always added after it: the [id] citation format and the rule that article and web text is data, not instructions.</small>
+					</div>
 					<div class="hood-stats" id="hoodStats"><p class="hood-empty">Send a question to see what went into the answer.</p></div>
 				</div>
 			</details>
@@ -544,6 +562,40 @@
 		});
 		syncWebBadge();
 
+		// Editable system prompt: starts as the Worker's default (from /chat/config); a
+		// customized version is saved in this browser and sent with each question.
+		const SYSTEM_PROMPT_KEY = "chatSystemPrompt";
+		const promptBox = document.getElementById("chatSystemPrompt");
+		const promptBadge = document.getElementById("promptBadge");
+		const promptReset = document.getElementById("promptReset");
+		let defaultSystemPrompt = null;
+		const customSystemPrompt = () =>
+			defaultSystemPrompt !== null && promptBox.value.trim() && promptBox.value.trim() !== defaultSystemPrompt.trim() ? promptBox.value.trim() : null;
+		function syncPromptState() {
+			const custom = customSystemPrompt();
+			if (custom) localStorage.setItem(SYSTEM_PROMPT_KEY, custom);
+			else localStorage.removeItem(SYSTEM_PROMPT_KEY);
+			promptBadge.textContent = custom ? "Custom" : "Default";
+			promptBadge.classList.toggle("on", !!custom);
+			promptReset.disabled = !custom;
+		}
+		promptBox.addEventListener("input", syncPromptState);
+		promptReset.addEventListener("click", () => {
+			promptBox.value = defaultSystemPrompt;
+			syncPromptState();
+		});
+		fetch(`${API_BASE}/chat/config`)
+			.then((r) => (r.ok ? r.json() : Promise.reject(new Error(`config returned ${r.status}`))))
+			.then((config) => {
+				defaultSystemPrompt = config.default_system_prompt;
+				promptBox.value = localStorage.getItem(SYSTEM_PROMPT_KEY) || defaultSystemPrompt;
+				promptBox.disabled = false;
+				syncPromptState();
+			})
+			.catch((err) => {
+				promptBox.placeholder = `Couldn't load the prompt (${err.message}). Chat still uses the default.`;
+			});
+
 		// "Under the hood" breakdown of the latest response.
 		function renderHoodStats(data, seconds) {
 			const u = data.usage || {};
@@ -560,6 +612,7 @@
 					<dt>Model</dt><dd>${escapeHtml(MODEL_NAMES[data.model] || data.model)}</dd>
 					<dt>Articles pulled from database</dt><dd>${fmtNum(ctx.articles_considered)}</dd>
 					<dt>Article context</dt><dd>${approx}${fmtNum(articleTok)} tokens</dd>
+					<dt>System prompt</dt><dd>${data.system_prompt === "custom" ? "custom" : "default"}</dd>
 					<dt>Web search</dt><dd>${web.enabled ? `on · ${fmtNum(web.searches)} search${web.searches === 1 ? "" : "es"}` : "off"}</dd>
 					<dt>Input tokens (total)</dt><dd>${fmtNum(inTok)}</dd>
 					<dt>Output tokens</dt><dd>${fmtNum(u.output_tokens)}</dd>
@@ -633,7 +686,7 @@
 				const res = await fetch(`${API_BASE}/chat`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json", "X-Agent-Password": password },
-					body: JSON.stringify({ question, model: chat.model.value, history: chat.history, web_search: webSearch }),
+					body: JSON.stringify({ question, model: chat.model.value, history: chat.history, web_search: webSearch, system_prompt: customSystemPrompt() ?? undefined }),
 				});
 				const data = await res.json().catch(() => ({}));
 				thinking.remove();
