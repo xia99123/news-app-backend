@@ -603,7 +603,21 @@ async function handleChat(request, env) {
 	const webSources = new Map();
 	for (const b of textBlocks) {
 		for (const c of b.citations ?? []) {
-			if (c.type === "web_search_result_location" && c.url && !webSources.has(c.url)) webSources.set(c.url, { url: c.url, title: c.title ?? c.url });
+			if (c.type === "web_search_result_location" && c.url && !webSources.has(c.url)) {
+				webSources.set(c.url, { url: c.url, title: c.title ?? c.url, cited: true });
+			}
+		}
+	}
+	// The dynamic-filtering search variant often returns no inline citations; fall back
+	// to the pages the searches returned so the user can still see where info came from.
+	if (webSources.size === 0) {
+		for (const b of blocks) {
+			if (b.type !== "web_search_tool_result" || !Array.isArray(b.content)) continue;
+			for (const r of b.content) {
+				if (r.type === "web_search_result" && r.url && !webSources.has(r.url) && webSources.size < 8) {
+					webSources.set(r.url, { url: r.url, title: r.title ?? r.url, cited: false });
+				}
+			}
 		}
 	}
 	const articleTokens = await articleTokensPromise;

@@ -162,6 +162,41 @@
 			border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; min-height: 40px; max-height: 140px;
 		}
 		.chat-usage { padding: 0 16px 10px; color: var(--muted); font-size: 0.75rem; }
+		.msg-meta .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+		.chip { display: inline-block; padding: 1px 7px; border-radius: 999px; background: var(--low-bg); color: var(--low-fg); font-weight: 600; font-size: 0.72rem; white-space: nowrap; }
+		.chip.tokens { background: var(--mid-bg); color: var(--mid-fg); }
+		.chip.web { background: var(--high-bg); color: var(--high-fg); }
+		.web-sources { margin-top: 8px; font-size: 0.8rem; }
+		.web-sources ul { margin: 4px 0 0; padding-left: 18px; }
+		.web-sources a { color: var(--accent); }
+
+		/* Under the hood */
+		.hood { border-bottom: 1px solid var(--border); font-size: 0.85rem; }
+		.hood summary { cursor: pointer; padding: 9px 16px; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 8px; list-style: none; }
+		.hood summary::-webkit-details-marker { display: none; }
+		.hood summary::after { content: "▸"; margin-left: auto; transition: transform 0.15s; }
+		.hood[open] summary::after { transform: rotate(90deg); }
+		.hood-badge { font-size: 0.72rem; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--low-bg); color: var(--low-fg); }
+		.hood-badge.on { background: var(--high-bg); color: var(--high-fg); }
+		.hood-body { padding: 4px 16px 12px; display: flex; flex-direction: column; gap: 12px; max-height: 300px; overflow-y: auto; }
+		.switch-row { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+		.switch-row small { color: var(--muted); }
+		.switch-row input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+		.switch { flex: none; width: 36px; height: 20px; margin-top: 2px; border-radius: 999px; background: var(--border); position: relative; transition: background 0.15s; }
+		.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform 0.15s; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25); }
+		.switch-row input:checked + .switch { background: var(--accent); }
+		.switch-row input:checked + .switch::after { transform: translateX(16px); }
+		.switch-row input:focus-visible + .switch { outline: 2px solid var(--accent); outline-offset: 2px; }
+		.hood-empty { margin: 0; color: var(--muted); }
+		.hood-stats h3 { margin: 0 0 6px; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+		.hood-stats dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
+		.hood-stats dt { color: var(--muted); }
+		.hood-stats dd { margin: 0; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+		.hood-stats .bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--low-bg); margin: 8px 0 4px; }
+		.hood-stats .bar .a { background: var(--accent); }
+		.hood-stats .bar .w { background: var(--high-fg); }
+		.hood-stats .legend { color: var(--muted); font-size: 0.75rem; }
+		.hood-stats .queries { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size: 0.78rem; }
 
 		dialog {
 			border: 1px solid var(--border); border-radius: var(--radius);
@@ -246,6 +281,17 @@
 					<option value="sonnet" selected>🧠 Capable (Claude Sonnet 5.5)</option>
 				</select>
 			</div>
+			<details class="hood" id="hood">
+				<summary>⚙️ Under the hood <span class="hood-badge" id="hoodBadge">Web search off</span></summary>
+				<div class="hood-body">
+					<label class="switch-row">
+						<input type="checkbox" id="webSearchToggle" role="switch" />
+						<span class="switch" aria-hidden="true"></span>
+						<span><strong>Web search</strong><br /><small>When on, Claude can search the web for information that isn't in the database. Slower and uses more tokens.</small></span>
+					</label>
+					<div class="hood-stats" id="hoodStats"><p class="hood-empty">Send a question to see what went into the answer.</p></div>
+				</div>
+			</details>
 			<div class="chat-log" id="chatLog" aria-live="polite">
 				<div class="chat-empty" id="chatEmpty">
 					Ask a question about the latest articles.
@@ -476,9 +522,51 @@
 			sendLabel: document.getElementById("chatSendLabel"),
 			model: document.getElementById("chatModel"),
 			usage: document.getElementById("chatUsage"),
+			webToggle: document.getElementById("webSearchToggle"),
+			hoodBadge: document.getElementById("hoodBadge"),
+			hoodStats: document.getElementById("hoodStats"),
 			history: [],
 			totals: { answers: 0, input: 0, output: 0 },
 		};
+
+		// Web search toggle: remembered in this browser, sent with every question.
+		const WEB_SEARCH_KEY = "chatWebSearch";
+		chat.webToggle.checked = localStorage.getItem(WEB_SEARCH_KEY) === "on";
+		function syncWebBadge() {
+			chat.hoodBadge.textContent = chat.webToggle.checked ? "🌐 Web search on" : "Web search off";
+			chat.hoodBadge.classList.toggle("on", chat.webToggle.checked);
+		}
+		chat.webToggle.addEventListener("change", () => {
+			localStorage.setItem(WEB_SEARCH_KEY, chat.webToggle.checked ? "on" : "off");
+			syncWebBadge();
+		});
+		syncWebBadge();
+
+		// "Under the hood" breakdown of the latest response.
+		function renderHoodStats(data, seconds) {
+			const u = data.usage || {};
+			const ctx = data.context || {};
+			const web = data.web_search || {};
+			const articleTok = ctx.article_context_tokens || 0;
+			const inTok = u.input_tokens || 0;
+			const otherTok = Math.max(0, inTok - articleTok);
+			const pctA = inTok ? Math.min(100, (articleTok / inTok) * 100) : 0;
+			const approx = ctx.article_context_tokens_method === "count_tokens" ? "≈" : "~";
+			chat.hoodStats.innerHTML = `
+				<h3>Last response</h3>
+				<dl>
+					<dt>Model</dt><dd>${escapeHtml(MODEL_NAMES[data.model] || data.model)}</dd>
+					<dt>Articles pulled from database</dt><dd>${fmtNum(ctx.articles_considered)}</dd>
+					<dt>Article context</dt><dd>${approx}${fmtNum(articleTok)} tokens</dd>
+					<dt>Web search</dt><dd>${web.enabled ? `on · ${fmtNum(web.searches)} search${web.searches === 1 ? "" : "es"}` : "off"}</dd>
+					<dt>Input tokens (total)</dt><dd>${fmtNum(inTok)}</dd>
+					<dt>Output tokens</dt><dd>${fmtNum(u.output_tokens)}</dd>
+					<dt>Response time</dt><dd>${seconds}s</dd>
+				</dl>
+				<div class="bar" title="Input token breakdown"><span class="a" style="width:${pctA}%"></span><span class="${web.searches ? "w" : ""}" style="width:${100 - pctA}%"></span></div>
+				<div class="legend">Input: ${approx}${fmtNum(articleTok)} from articles (${Math.round(pctA)}%) · ${approx}${fmtNum(otherTok)} from ${web.searches ? "web results, " : ""}question, history &amp; instructions</div>
+				${web.queries?.length ? `<ul class="queries">${web.queries.map((q) => `<li>🔍 ${escapeHtml(q)}</li>`).join("")}</ul>` : ""}`;
+		}
 		const MODEL_NAMES = { "claude-haiku-5-5": "Haiku 5.5", "claude-sonnet-5-5": "Sonnet 5.5", "claude-opus-5-5": "Opus 5.5" };
 		const fmtNum = (n) => Number(n || 0).toLocaleString();
 
@@ -535,14 +623,15 @@
 
 			addMessage("user", escapeHtml(question));
 			chat.input.value = "";
-			const thinking = addMessage("thinking", "Reading the articles and thinking…");
+			const webSearch = chat.webToggle.checked;
+			const thinking = addMessage("thinking", webSearch ? "Reading the articles and searching the web…" : "Reading the articles and thinking…");
 			setChatBusy(true);
 			const started = performance.now();
 			try {
 				const res = await fetch(`${API_BASE}/chat`, {
 					method: "POST",
 					headers: { "Content-Type": "application/json", "X-Agent-Password": password },
-					body: JSON.stringify({ question, model: chat.model.value, history: chat.history }),
+					body: JSON.stringify({ question, model: chat.model.value, history: chat.history, web_search: webSearch }),
 				});
 				const data = await res.json().catch(() => ({}));
 				thinking.remove();
@@ -561,11 +650,28 @@
 				chat.totals.output += outTok;
 				const modelName = MODEL_NAMES[data.model] || data.model;
 				const cited = (data.sources || []).filter((s) => s.cited).length;
+				const ctx = data.context || {};
+				const web = data.web_search || {};
+				const webList = (web.sources || []).length
+					? `<div class="web-sources">🌐 ${web.sources.some((s) => s.cited) ? "Web sources" : "Pages found by web search"}:<ul>${web.sources
+							.slice(0, 6)
+							.map((s) => `<li><a href="${escapeHtml(safeUrl(s.url))}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a></li>`)
+							.join("")}</ul></div>`
+					: "";
 				addMessage(
 					"assistant",
 					renderAnswer(data.answer, data.sources || []) +
-						`<div class="msg-meta">${escapeHtml(modelName)} · ${fmtNum(inTok)} in / ${fmtNum(outTok)} out tokens · ${seconds}s · ${cited} source${cited === 1 ? "" : "s"} cited${data.truncated ? " · answer was cut off" : ""}</div>`,
+						webList +
+						`<div class="msg-meta">${escapeHtml(modelName)} · ${seconds}s · ${cited} article${cited === 1 ? "" : "s"} cited${data.truncated ? " · answer was cut off" : ""}
+							<div class="chips">
+								<span class="chip tokens" title="Total input tokens">📥 ${fmtNum(inTok)} in</span>
+								<span class="chip tokens" title="Output tokens">📤 ${fmtNum(outTok)} out</span>
+								<span class="chip" title="Articles pulled from the database and their context tokens">📚 ${fmtNum(ctx.articles_considered)} articles · ≈${fmtNum(ctx.article_context_tokens)} tok</span>
+								${web.enabled ? `<span class="chip web" title="Web searches Claude ran">🔍 ${fmtNum(web.searches)} web search${web.searches === 1 ? "" : "es"}</span>` : ""}
+							</div>
+						</div>`,
 				);
+				renderHoodStats(data, seconds);
 				chat.usage.textContent = `This conversation: ${chat.totals.answers} answer${chat.totals.answers === 1 ? "" : "s"} · ${fmtNum(chat.totals.input)} in / ${fmtNum(chat.totals.output)} out tokens`;
 				chat.history.push({ role: "user", content: question }, { role: "assistant", content: data.answer });
 			} catch (err) {
@@ -602,6 +708,7 @@
 			chat.log.querySelectorAll(".msg").forEach((m) => m.remove());
 			chat.empty.hidden = false;
 			chat.usage.textContent = "Token usage appears after each answer.";
+			chat.hoodStats.innerHTML = '<p class="hood-empty">Send a question to see what went into the answer.</p>';
 		});
 
 		els.topic.addEventListener("change", reload);
